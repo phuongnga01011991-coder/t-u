@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Đoàn Tàu Tri Thức</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+        body { font-family: 'Nunito', sans-serif; }
+    </style>
+</head>
+<body class="bg-sky-100 min-h-screen flex flex-col">
+
+    <!-- Thanh Tiêu Đề -->
+    <header class="bg-amber-500 text-white shadow-md py-3 px-6 flex justify-between items-center border-b-4 border-amber-600">
+        <div class="flex items-center space-x-3 cursor-pointer" onclick="openTeacherLogin()">
+            <span class="text-3xl">🚂</span>
+            <span class="text-xl font-extrabold tracking-wide">ĐOÀN TÀU TRI THỨC</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <button onclick="openTeacherLogin()" class="bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold px-3 py-2 rounded-xl shadow transition">
+                🔑 Giáo Viên Xem Điểm
+            </button>
+        </div>
+    </header>
+
+    <!-- Khu vực chính -->
+    <div id="app" class="flex-1 flex flex-col items-center justify-center p-4">
+        <div class="text-center py-10">
+            <div class="inline-block animate-spin rounded-full h-10 w-10 border-4 border-amber-500 border-t-transparent mb-3"></div>
+            <p class="text-slate-600 font-bold">Đang tải hệ thống...</p>
+        </div>
+    </div>
+
+    <!-- Modal Nhập Mật Khẩu Giáo Viên -->
+    <div id="password-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl text-center border-4 border-amber-400">
+            <div class="text-4xl mb-2">🔐</div>
+            <h3 class="text-lg font-extrabold text-slate-800 mb-2">Khu Vực Giáo Viên</h3>
+            <p class="text-slate-600 text-xs mb-4">Vui lòng nhập mật khẩu để xem kết quả của học sinh:</p>
+            <input type="password" id="teacher-pass" placeholder="Nhập mật khẩu..." class="w-full border-2 border-slate-200 rounded-xl px-3 py-2 text-center font-bold mb-4 focus:outline-none focus:border-amber-500">
+            <div class="flex justify-center gap-2">
+                <button onclick="verifyPassword()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-xl text-sm">Xác Nhận</button>
+                <button onclick="closePasswordModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-4 py-2 rounded-xl text-sm">Hủy</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = {
+            databaseURL: "https://doantautrithuc-default-rtdb.firebaseio.com/"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const gameId = urlParams.get('id');
+
+        if (gameId) {
+            loadStudentGame(gameId);
+        } else {
+            renderCreatorDashboard();
+        }
+
+        // --- 1. GIAO DIỆN TẠO CÂU HỎI CHO GIÁO VIÊN ---
+        function renderCreatorDashboard(existingData = null, currentKey = null) {
+            let title = existingData ? existingData.title : '';
+            let carriages = existingData ? existingData.carriages : [{ prompt: '', answer: '', image: '' }];
+
+            document.getElementById('app').innerHTML = `
+                <div class="max-w-4xl w-full bg-white rounded-3xl shadow-xl p-6 border-2 border-amber-300">
+                    <h1 class="text-2xl font-extrabold text-amber-600 mb-4 pb-2 border-b">
+                        ${currentKey ? '✏️ Chỉnh Sửa Đoàn Tàu' : '🚂 Tạo Đoàn Tàu Tri Thức Mới'}
+                    </h1>
+                    
+                    <div class="mb-6">
+                        <label class="block text-sm font-bold text-slate-700 mb-2">Tên đoàn tàu / Chủ đề bài học</label>
+                        <input type="text" id="train-title" value="${title}" placeholder="VD: Tiếng Việt Lớp 2 - Phân biệt l/n" 
+                            class="w-full border-2 border-amber-200 rounded-xl px-4 py-2.5 font-semibold text-slate-700 focus:outline-none focus:border-amber-500">
+                    </div>
+
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="font-extrabold text-slate-700" id="to-count">Các toa (${carriages.length})</h2>
+                        <button onclick="addCarriageUI()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2 rounded-xl text-sm shadow">
+                            + Thêm toa tàu
+                        </button>
+                    </div>
+
+                    <div id="carriages-container" class="space-y-4 mb-6 max-h-[450px] overflow-y-auto pr-2"></div>
+
+                    <div class="flex justify-end gap-3 pt-4 border-t">
+                        <button onclick="saveGameToCloud('${currentKey || ''}')" class="bg-green-500 hover:bg-green-600 text-white font-extrabold px-6 py-3 rounded-xl shadow-lg transition transform hover:scale-105">
+                            💾 Lưu Lên Đám Mây & Lấy Link Cố Định
+                        </button>
+                    </div>
+                </div>
+            `;
+            window.tempCarriages = carriages;
+            renderCarriageList();
+        }
+
+        function addCarriageUI() {
+            window.tempCarriages.push({ prompt: '', answer: '', image: '' });
+            renderCarriageList();
+        }
+
+        function removeCarriageUI(index) {
+            window.tempCarriages.splice(index, 1);
+            renderCarriageList();
+        }
+
+        function renderCarriageList() {
+            const container = document.getElementById('carriages-container');
+            container.innerHTML = '';
+            document.getElementById('to-count').innerText = `Các toa (${window.tempCarriages.length})`;
+
+            window.tempCarriages.forEach((c, index) => {
+                const div = document.createElement('div');
+                div.className = "bg-amber-50 border-2 border-amber-200 rounded-2xl p-4 relative shadow-sm";
+                div.innerHTML = `
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="bg-amber-500 text-white text-xs font-extrabold px-3 py-1 rounded-full">Toa số ${index + 1}</span>
+                        <button onclick="removeCarriageUI(${index})" class="text-red-500 hover:text-red-700 font-bold text-sm">🗑️ Xóa toa</button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1">CÂU HỎI / ĐỀ BÀI</label>
+                            <textarea oninput="window.tempCarriages[${index}].prompt=this.value" placeholder="Nhập câu hỏi..." class="w-full border border-amber-300 rounded-xl p-2.5 text-sm font-medium focus:outline-none focus:border-amber-500 bg-white h-20 mb-2">${c.prompt}</textarea>
+                            
+                            <label class="block text-xs font-bold text-slate-600 mb-1">ẢNH MINH HỌA (Tùy chọn)</label>
+                            <input type="file" accept="image/*" onchange="handleImageUpload(event, ${index})" class="w-full text-xs text-slate-500 file:mr-4 file:py-1 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-100 file:text-amber-700 hover:file:bg-amber-200">
+                            <div id="preview-${index}" class="mt-2">
+                                ${c.image ? `<img src="${c.image}" class="h-20 object-contain rounded-lg border bg-white p-1">` : ''}
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 mb-1">ĐÁP ÁN ĐÚNG</label>
+                            <textarea oninput="window.tempCarriages[${index}].answer=this.value" placeholder="Nhập đáp án..." class="w-full border border-amber-300 rounded-xl p-2.5 text-sm font-medium focus:outline-none focus:border-amber-500 bg-white h-20">${c.answer}</textarea>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // Chuyển ảnh từ máy tính thành mã Base64 để lưu vào đám mây
+        function handleImageUpload(event, index) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    window.tempCarriages[index].image = e.target.result;
+                    document.getElementById(`preview-${index}`).innerHTML = `<img src="${e.target.result}" class="h-20 object-contain rounded-lg border bg-white p-1">`;
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function saveGameToCloud(existingKey) {
+            const title = document.getElementById('train-title').value.trim();
+            if (!title) { alert('Vui lòng nhập tên đoàn tàu!'); return; }
+            if (window.tempCarriages.length === 0) { alert('Vui lòng thêm ít nhất một toa tàu!'); return; }
+
+            const gameData = { title, carriages: window.tempCarriages };
+            let gameRef;
+
+            if (existingKey) {
+                gameRef = db.ref('games/' + existingKey);
+                gameRef.set(gameData);
+                alert('Đã cập nhật câu hỏi thành công!');
+            } else {
+                gameRef = db.ref('games').push();
+                gameRef.set(gameData);
+            }
+
+            const gameKey = existingKey || gameRef.key;
+            const permanentLink = window.location.origin + window.location.pathname + "?id=" + gameKey;
+
+            document.getElementById('app').innerHTML = `
+                <div class="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border-4 border-amber-400">
+                    <div class="text-6xl mb-3">🎉</div>
+                    <h2 class="text-2xl font-extrabold text-amber-600 mb-2">Lưu Thành Công!</h2>
+                    <p class="text-slate-600 text-sm mb-4">Đường link cố định gửi cho học sinh:</p>
+                    <input type="text" readonly value="${permanentLink}" class="w-full bg-slate-100 border-2 border-slate-200 rounded-xl p-3 text-xs font-bold text-amber-700 text-center mb-4 select-all">
+                    <div class="flex flex-col gap-2">
+                        <button onclick="window.location.href='${permanentLink}'" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 rounded-xl">Chơi Thử Ngay</button>
+                        <button onclick="window.location.href=window.location.pathname" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2.5 rounded-xl">Tạo Đoàn Tàu Khác</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- 2. GIAO DIỆN HỌC SINH (KÉO THẢ VÀ NỘP BÀI) ---
+        function loadStudentGame(id) {
+            db.ref('games/' + id).once('value', (snapshot) => {
+                const data = snapshot.val();
+                if (!data) {
+                    document.getElementById('app').innerHTML = `<div class="text-red-500 font-bold text-xl">Không tìm thấy đoàn tàu này!</div>`;
+                    return;
+                }
+
+                let shuffledAnswers = data.carriages.map((c, idx) => ({ id: idx, text: c.answer }));
+                shuffledAnswers.sort(() => Math.random() - 0.5);
+
+                let carriagesHtml = '';
+                data.carriages.forEach((c, idx) => {
+                    let imageHtml = c.image ? `<div class="mb-2 flex justify-center"><img src="${c.image}" class="h-28 object-contain rounded-lg border bg-white p-1"></div>` : '';
+                    carriagesHtml += `
+                        <div class="bg-white rounded-2xl p-4 shadow border-2 border-amber-200 flex flex-col justify-between">
+                            <div>
+                                <span class="bg-amber-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">Toa số ${idx + 1}</span>
+                                ${imageHtml}
+                                <p class="font-bold text-slate-800 my-2 text-sm min-h-[30px]">${c.prompt}</p>
+                            </div>
+                            <div class="drop-zone border-2 border-dashed border-amber-300 bg-amber-50 rounded-xl h-14 flex items-center justify-center p-2 text-center text-sm font-bold text-slate-400" 
+                                 ondragover="allowDrop(event)" ondrop="drop(event)" data-answer="">
+                                Kéo đáp án vào đây
+                            </div>
+                        </div>
+                    `;
+                });
+
+                let answersHtml = '';
+                shuffledAnswers.forEach((ans) => {
+                    answersHtml += `
+                        <div draggable="true" ondragstart="drag(event)" data-text="${ans.text}" 
+                             class="bg-white border-2 border-amber-400 text-amber-800 px-4 py-2 rounded-xl font-bold text-sm shadow cursor-grab hover:bg-amber-50 transition">
+                            ${ans.text}
+                        </div>
+                    `;
+                });
+
+                document.getElementById('app').innerHTML = `
+                    <div class="max-w-4xl w-full bg-white rounded-3xl shadow-xl p-6 mb-4 border-b-4 border-amber-400 flex flex-col md:flex-row justify-between items-center gap-4">
+                        <h1 class="text-xl font-extrabold text-amber-600">🚂 ${data.title}</h1>
+                        <div class="w-full md:w-auto flex items-center gap-3">
+                            <input type="text" id="student-name" placeholder="Nhập họ và tên học sinh..." class="border-2 border-amber-300 rounded-xl px-3 py-2 text-sm font-bold text-slate-700 focus:outline-none focus:border-amber-500">
+                        </div>
+                    </div>
+
+                    <div class="max-w-4xl w-full grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        ${carriagesHtml}
+                    </div>
+
+                    <div class="max-w-4xl w-full bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 mb-6">
+                        <p class="font-bold text-amber-800 text-sm mb-3">🗂️ Kho đáp án (Kéo thả thẻ vào toa phù hợp):</p>
+                        <div id="answer-pool" class="flex flex-wrap gap-3">
+                            ${answersHtml}
+                        </div>
+                    </div>
+
+                    <button onclick='submitStudentScore("${id}", ${JSON.stringify(data.carriages).replace(/'/g, "&#39;")})' class="bg-green-500 hover:bg-green-600 text-white font-extrabold text-lg px-8 py-3 rounded-2xl shadow-lg">
+                        🚀 Nộp Bài Ngay
+                    </button>
+                `;
+            });
+        }
+
+        function allowDrop(ev) { ev.preventDefault(); }
+        function drag(ev) {
+            ev.dataTransfer.setData("text", ev.target.getAttribute("data-text"));
+        }
+        function drop(ev) {
+            ev.preventDefault();
+            const data = ev.dataTransfer.getData("text");
+            const dropZone = ev.target.closest('.drop-zone');
+            dropZone.innerText = data;
+            dropZone.setAttribute("data-answer", data);
+            dropZone.classList.remove('bg-amber-50', 'border-amber-300', 'text-slate-400');
+            dropZone.classList.add('bg-green-50', 'border-green-500', 'text-green-700');
+        }
+
+        function submitStudentScore(gameId, carriages) {
+            const studentName = document.getElementById('student-name').value.trim();
+            if (!studentName) {
+                alert('Em vui lòng nhập họ và tên trước khi nộp bài nhé!');
+                return;
+            }
+
+            let score = 0;
+            const dropZones = document.querySelectorAll('.drop-zone');
+            
+            carriages.forEach((c, idx) => {
+                const userAns = (dropZones[idx].getAttribute("data-answer") || "").trim().toLowerCase();
+                const correctAns = c.answer.trim().toLowerCase();
+                if (userAns === correctAns) {
+                    score += Math.round(100 / carriages.length);
+                }
+            });
+
+            db.ref('submissions/' + gameId).push({
+                name: studentName,
+                score: score,
+                time: new Date().toLocaleString()
+            });
+
+            document.getElementById('app').innerHTML = `
+                <div class="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border-4 border-green-400">
+                    <div class="text-6xl mb-3">🎉</div>
+                    <h2 class="text-2xl font-extrabold text-green-600 mb-2">Nộp Bài Thành Công!</h2>
+                    <p class="text-slate-700 font-bold text-lg mb-2">Học sinh: ${studentName}</p>
+                    <p class="text-slate-600 text-sm mb-6">Điểm số của em: <span class="text-red-500 font-extrabold text-xl">${score}/100</span></p>
+                    <button onclick="window.location.reload()" class="bg-amber-500 hover:bg-amber-600 text-white font-bold px-6 py-2.5 rounded-xl">Làm Lại Bài</button>
+                </div>
+            `;
+        }
+
+        // --- 3. XEM KẾT QUẢ DÀNH CHO GIÁO VIÊN ---
+        function openTeacherLogin() {
+            document.getElementById('password-modal').classList.remove('hidden');
+        }
+
+        function closePasswordModal() {
+            document.getElementById('password-modal').classList.add('hidden');
+            document.getElementById('teacher-pass').value = '';
+        }
+
+        function verifyPassword() {
+            const pass = document.getElementById('teacher-pass').value;
+            if (pass === "12345") {
+                closePasswordModal();
+                showTeacherDashboard();
+            } else {
+                alert('Mật khẩu không đúng! Vui lòng thử lại.');
+            }
+        }
+
+        function showTeacherDashboard() {
+            if (!gameId) {
+                alert('Cô hãy mở link của một bài học cụ thể để xem danh sách điểm của học sinh làm bài đó nhé!');
+                return;
+            }
+
+            db.ref('submissions/' + gameId).once('value', (snapshot) => {
+                const subs = snapshot.val();
+                let rows = '';
+
+                if (subs) {
+                    let stt = 1;
+                    Object.values(subs).forEach(s => {
+                        rows += `
+                            <tr class="border-b hover:bg-slate-50">
+                                <td class="py-3 px-4 text-center font-medium">${stt++}</td>
+                                <td class="py-3 px-4 font-bold text-slate-800">${s.name}</td>
+                                <td class="py-3 px-4 text-center font-extrabold text-red-500">${s.score} điểm</td>
+                                <td class="py-3 px-4 text-center text-slate-500 text-xs">${s.time}</td>
+                            </tr>
+                        `;
+                    });
+                } else {
+                    rows = `<tr><td colspan="4" class="text-center py-6 text-slate-400">Chưa có học sinh nào nộp bài.</td></tr>`;
+                }
+
+                document.getElementById('app').innerHTML = `
+                    <div class="max-w-4xl w-full bg-white rounded-3xl shadow-xl p-6 border-2 border-amber-300">
+                        <div class="flex justify-between items-center mb-6 pb-3 border-b">
+                            <h2 class="text-xl font-extrabold text-amber-600">📊 Bảng Điểm Của Học Sinh</h2>
+                            <button onclick="window.location.reload()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-4 py-2 rounded-xl text-sm">Quay Lại Game</button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-amber-100 text-amber-900 text-sm font-extrabold">
+                                        <th class="py-3 px-4 text-center rounded-l-xl">STT</th>
+                                        <th class="py-3 px-4">Họ và Tên Học Sinh</th>
+                                        <th class="py-3 px-4 text-center">Điểm Số</th>
+                                        <th class="py-3 px-4 text-center rounded-r-xl">Thời Gian Nộp</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+    </script>
+</body>
+</html>
